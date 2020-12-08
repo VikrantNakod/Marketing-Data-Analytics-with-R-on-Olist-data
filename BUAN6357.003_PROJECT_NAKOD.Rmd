@@ -1,0 +1,1134 @@
+---
+title: "Marketing Data Analytics on Olist data"
+author: '"Vikrant Nakod"'
+date: "9/12/2020"
+output:
+  html_document: default
+  pdf_document: default
+  always_allow_html: yes
+---
+
+```{r global.options, include=FALSE, echo=FALSE, fig.align='center' }
+
+knitr::opts_chunk$set(echo = FALSE,fig.align='center')
+
+```
+
+
+
+# BUAN 6357.003 PROJECT
+
+
+## Executive Summary 
+
+### The online retail market is growing at a rapid pace where customers and vendors are actively looking for more engaging and highly personalized retail experiences. To achieve success and stay afloat in a highly competitive and volatile market, e-commerce businesses must be able to stay one step ahead of their customers. I have tried my hands at analyzing the data provided by the Olist. It is probably not relevant to Olist as it is not ecommerce company itself, but due to it's multidimesnional data which covers various important aspects of an customer order, I just want to provide with important metrics and predictive analytics that will help ecommerce company to find various new ways to survive. Based on the transactional data from 2016 to 2018, I performed extensive Exploratory Data Analysis and used ARIMA and ETS techniques to forecast the monthly revenue. I have utilized RFM analysis and the k-means algorithm for customer segmentation.
+
+
+
+## Introduction:
+
+### Olist is a Brazilian departmental store (marketplace) that operates in e-commerce segment but is not an e-commerce itself (as she says). It operates as a SaaS (Software as a Service) technology company since 2015. It offers a marketplace solution (of e-commerce segment) to shopkeepers of all sizes (and for most segments) to increase their sales whether they have online presence or not. 
+
+
+```{r message=FALSE}
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, e1071, caret,readr, dplyr,corrplot,RColorBrewer,pheatmap,lubridate,fpp2, urca, gridExtra, fpp3, patchwork, purrr,tibble,tsibble,tsbox,ggrepel,animation,forcats,scales,translateR,maps,Imap,tidyverse, e1071, caret,readr, dplyr,corrplot,RColorBrewer,pheatmap,lubridate,fpp2, urca, gridExtra, fpp3, patchwork, purrr,tibble, tsibble,tsbox, rfm,Hmisc,lavaan,gganimate,ggplot2,babynames,tidyverse,e1071,caret, readr,webshot,highcharter)
+
+```
+
+```{r, force=TRUE}
+#install.packages("webshot")
+#webshot::install_phantomjs(force=TRUE)
+
+```
+
+
+## Data Description:
+
+### The complete dataset contains 10 csv files with almost 100k records from 2016 to 2018. Its features allow viewing an order from multiple dimensions: from order status, price, payment and freight performance to customer location, product attributes. 
+
+```{r message=FALSE}
+customers <- read_csv("olist_customers_dataset.csv")
+order_items <- read_csv("olist_order_items_dataset.csv")
+order_payments <- read_csv("olist_order_payments_dataset.csv")
+orders <- read_csv("olist_orders_dataset.csv")
+geolocation <- read_csv("olist_geolocation_dataset.csv")
+reviews <- read_csv("olist_order_reviews_dataset.csv")
+product <- read_csv("olist_products_dataset.csv")
+seller <- read_csv("olist_sellers_dataset.csv")
+eng_prod_name <- read_csv("product_category_name_translation.csv")
+
+```
+
+
+
+```{r include=FALSE,message=FALSE}
+dim(customers)
+glimpse(customers)
+```
+
+```{r include=FALSE,message=FALSE}
+df1 <- merge(order_payments, orders, by = 'order_id')
+df2 <- merge(df1, order_items, by = 'order_id')
+orders_merged <- merge(df2, customers, by = 'customer_id')
+head(orders_merged)
+```
+```{r include=FALSE}
+merged_orders.df <- data.frame(orders_merged)
+glimpse(merged_orders.df)
+```
+
+```{r include=FALSE,message=FALSE}
+sum(is.na(merged_orders.df))
+```
+
+```{r include=FALSE,message=FALSE}
+#Find missing values from each columns using lapply:
+
+lapply(merged_orders.df,function(x) { length(which(is.na(x)))})
+```
+
+```{r include=FALSE,message=FALSE}
+#dropping the columns with null values using dplyr package: 
+
+clean<- select(merged_orders.df,-c(order_delivered_carrier_date,order_delivered_customer_date,order_approved_at))
+
+
+```
+
+
+```{r message=FALSE, include=FALSE}
+sum(is.na(clean))
+clean_orders_df <- data.frame(clean)
+```
+
+
+```{r include=FALSE,message=FALSE}
+as.Date(clean_orders_df$order_purchase_timestamp)
+```
+
+
+```{r include=FALSE,message=FALSE}
+#df <- data.frame(date=Sys.Date()+seq(1,by=30,len=10))
+clean_orders_df[, "day"] <- format(clean_orders_df[,"order_purchase_timestamp"], "%d")
+clean_orders_df[, "month"] <- format(clean_orders_df[,"order_purchase_timestamp"], "%m")
+clean_orders_df[, "year"] <- format(clean_orders_df[,"order_purchase_timestamp"], "%Y")
+
+
+```
+
+
+
+```{r include=FALSE}
+clean_orders_df$month_year <- paste(clean_orders_df$month,"/",clean_orders_df$year)
+clean_orders_df$day <- as.numeric(clean_orders_df$day)
+clean_orders_df$month <- as.numeric(clean_orders_df$month)
+clean_orders_df$year <- as.numeric(clean_orders_df$year)
+
+```
+
+```{r include=FALSE,message=FALSE}
+ordered_df <- clean_orders_df[order(clean_orders_df$order_purchase_timestamp),]
+```
+
+
+### What are the dimensions of the final dataset?
+```{r echo=TRUE}
+dim(ordered_df)
+```
+
+
+
+## D. Exploratory Data Analysis
+
+### Starting with the monthly revenue generated(in braziilian real)
+```{r message=FALSE, include=FALSE}
+monthly_revenue <- aggregate(payment_value ~ month_year, ordered_df, FUN = sum)
+
+
+
+ordered_df_2017 <- subset(ordered_df,ordered_df$year == 2017)
+ordered_df_2018 <- subset(ordered_df,ordered_df$year == 2018)
+month_rev_df_2017 <- aggregate(ordered_df_2017$payment_value, by=list(ordered_df_2017$month_year),sum)
+month_rev_df_2018 <- aggregate(ordered_df_2018$payment_value, by=list(ordered_df_2018$month_year),sum)
+combined_monthly_revenue <- rbind(month_rev_df_2017,month_rev_df_2018)
+combined_monthly_revenue
+
+total_rev <- sum(combined_monthly_revenue[, 'x'])
+
+##in USD
+total_rev <- total_rev/5.36
+```
+
+
+```{r include=FALSE}
+rev_x <- combined_monthly_revenue %>% 
+  rename(
+    duration = Group.1,
+    revenue = x
+    )
+rev_x
+```
+Here, we can see the revenue increases with the time
+
+
+```{r echo=FALSE, message=FALSE}
+bar_ch <- ggplot(rev_x, aes(fill=revenue, y=revenue, x=duration)) + 
+    geom_bar(position="dodge", stat="identity") +
+    scale_fill_gradient(low="midnightblue",high="yellow")+
+    ggtitle("Revenue by month by year") +
+    theme(legend.position="none") +
+    xlab("month_year")+
+    theme_minimal()
+
+revenue_bar <- bar_ch + theme(axis.text.x = element_text(angle = 90))
+revenue_bar + theme(panel.background = element_rect(fill = 'white', colour = 'gray10'))
+
+
+hc_revenue <- rev_x %>% 
+  hchart(
+  'column', hcaes(x = duration, y = revenue, color = revenue)
+  )%>%
+  hc_title(text="Monthly Revenue Generated")%>%
+  hc_plotOptions(series = list(animation = FALSE))
+hc_revenue
+
+
+```
+In above bar chart, we can see the the monthly comparisons of 2017 and 2018 in terms of the revenue. The data is only of few transactions for September 2018 and hence no bar for that duration
+
+
+```{r include=FALSE}
+write.csv(monthly_revenue)
+write.csv(monthly_revenue,'monthly_revenue.csv')
+```
+
+
+### Next, we will look at the active monthly customers Olist had in year 2017 and 2018.
+```{r message=FALSE, include=FALSE}
+#Monthly Active Customers
+
+monthly_active_cust <- aggregate(customer_unique_id ~ month_year, ordered_df, FUN = function(x) length(unique(x)))
+monthly_active_cust
+```
+
+
+
+
+
+```{r echo=FALSE, message=FALSE}
+mc <- ggplot(monthly_active_cust, aes(fill=customer_unique_id, y=customer_unique_id, x=month_year)) + 
+    geom_bar(position="dodge", stat="identity") +
+    scale_fill_gradient(low="olivedrab1",high="black")+
+    ggtitle("Number of active customers in year 2017 and 2018") +
+    theme(legend.position="none") +
+    xlab("month_year")+
+    theme_minimal()
+    
+
+cust_b <- mc + theme(axis.text.x = element_text(angle = 90))
+cust_b
+```
+
+###Moving ahead with the type of payments chosen by the customers
+```{r message=FALSE, include=FALSE}
+type_pay <- aggregate(customer_unique_id ~ payment_type, ordered_df, FUN = function(x) length(unique(x)))
+type_pay
+```
+
+```{r echo=FALSE,message=FALSE}
+type_pay %>%
+arrange(desc(customer_unique_id)) %>%
+mutate(prop = percent(customer_unique_id / sum(customer_unique_id))) -> mydf 
+
+
+
+library(dplyr)
+library(highcharter) 
+# Set highcharter options
+options(highcharter.theme = hc_theme_smpl(tooltip = list(valueDecimals = 2)))
+
+hc_pay <- mydf %>%
+  hchart(
+    "pie", hcaes(x = payment_type, y = customer_unique_id,fill = fct_inorder(payment_type)),
+    name = "Payment_Type"
+    ) %>% hc_title(text="Distribution of Payments")%>%
+  hc_plotOptions(series = list(animation = FALSE))
+
+hc_pay
+```
+From above interactive pie chart we can see that credit card was most preferred payment type followed by the boleto which is brazilian payment type regulated by brazilian federation of Banks and is used for ecommerce and utility payments.
+
+
+
+
+
+### Now, customers from which state does the more shopping?
+```{r message=FALSE, include=FALSE}
+cust_state <- aggregate(customer_unique_id ~ customer_state, ordered_df, FUN = function(x) length(unique(x)))
+cust_state
+```
+
+
+
+```{r echo=FALSE,message=FALSE}
+state <- cust_state %>%
+  mutate(name = fct_reorder(customer_state, customer_unique_id)) %>%
+  ggplot( mapping = aes(x = reorder(customer_state, customer_unique_id), customer_unique_id)) +
+    geom_bar(stat="identity", fill="#009E73", alpha=.8, width=0.8) +
+    coord_flip() +
+    xlab("Brazilian states") +
+    ylab("Number of orders")+
+    ggtitle("Number of orders from the different states of Brazil")+
+    theme_minimal()
+
+state
+```
+Sao Paulo has the most number of shoppers for Olist with almost 40K customers. It is followed by the Rio De Janeiro and Minas Gerais.
+
+
+### Which products are most popular among the customers?
+
+```{r message=FALSE, include=FALSE}
+#for product category
+
+colnames(product)
+prod_cat <- merge(ordered_df, product, by = 'product_id')
+eng_prod_cat <- merge(prod_cat, eng_prod_name, by = 'product_category_name')
+```
+
+
+```{r message=FALSE, include=FALSE}
+max_prod <- eng_prod_cat %>% 
+  group_by(product_category_name_english) %>%
+  summarise(count=n())%>%arrange(desc(count))
+
+max_prod
+```
+
+
+```{r echo=FALSE,message=FALSE}
+large <-  filter(max_prod, count > 500)
+
+
+#highcharter bar chart
+hc_prod <- large %>%
+  hchart(
+  'bar', hcaes(x = product_category_name_english, y = count),
+  color = "darkred", borderColor = "grey69"
+  )%>% hc_title(text="Product Category Name with Maximum Number of Orders") %>%
+  hc_plotOptions(series = list(animation = FALSE))
+  
+
+hc_prod
+  
+```
+Bed_Bath_Table is most sought after product category with almost 12k orders. Health beauty products are sold is most numbers of the bed_bath_tabel category.
+
+
+### How the customers are increasing each month?
+```{r echo=FALSE, message=FALSE}
+orders <-
+               orders %>% mutate(
+                      order_purchase_timestamp = as.POSIXct(
+                      order_purchase_timestamp,
+                      format = "Y-%m-%d %H:%m:%s",
+                      order_approved_at = as.POSIXct(order_approved_at, format = "Y-%m-%d %H:%m:%s"),
+                      order_delivered_carrier_date = as.POSIXct(
+                      order_delivered_carrier_date,format = "Y-%m-%d %H:%m:%s",
+                      order_delivered_customer_date = as.POSIXct(order_estimated_delivery_date, format = "Y-%m-%d %H:%m:%s"),order_estimated_delivery_date = as.POSIXct(order_estimated_delivery_date, format ="Y-%m-%d %H:%m:%s")
+                                             )
+                              )
+               )
+
+library(zoo)
+library(plotly)
+time_users <-
+               orders %>% 
+               select(customer_id, order_approved_at) %>% 
+               mutate(order_approved_at = as.yearmon(as.Date(order_approved_at)),
+               year = year(as.Date(order_approved_at))) %>% group_by(order_approved_at, year) %>%
+               count()%>%drop_na()%>%ungroup()
+
+gg <-time_users %>% 
+ggplot(aes(x = factor(order_approved_at), y = n)) + 
+geom_line(aes(group = year, color = factor(year)), lwd = 1) + 
+theme(axis.text.x = element_text(angle = 90, vjust =1,color = "black",size = 8),legend.title = element_blank()) + scale_color_manual(values = c("cornsilk3", "darkorange", "chocolate")) + 
+geom_point(fill ="white", size = 2, shape=20)+xlab("Date")+ylab("Number of Userid")+
+labs(title="Trend of the users increasing by year")+
+scale_y_continuous(labels = comma)+
+theme_minimal()
+
+gg_user <- gg + theme(axis.text.x = element_text(angle = 90))
+
+ggplotly(gg_user)
+
+chartA <- gg_user
+```
+The overall trend of number of increasing customers is positive with month of November in 2017 saw the maximum number of customers.
+
+
+
+
+
+
+## STARTING WITH FORECASTING
+```{r include=FALSE,message=FALSE}
+month<- read.csv("olist_months.csv")
+head(month)
+```
+
+
+```{r include=FALSE,message=FALSE}
+parse_date_time(month$mmyy, orders = c("ymd", "dmy", "mdy"))
+```
+
+
+```{r include=FALSE, message=FALSE}
+mrev_olist <- month %>%
+          mutate(months = parse_date_time(month$mmyy, orders = c("ymd", "dmy", "mdy")))
+```
+
+
+```{r include=FALSE,message=FALSE}
+mrev_olist$mmyy <- NULL
+head(mrev_olist)
+```
+
+
+## This is the monthly time series of revenue
+```{r message=FALSE, include=FALSE}
+library(zoo)
+as.ts(read.zoo(mrev_olist, FUN = as.yearmon))
+str(mrev_olist)
+```
+
+### Plotting the timeseries
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+mrev_olist_ts <- ts(mrev_olist$revenue, start = c(2017,1), end = c(2018,9), frequency = 12)
+plot(mrev_olist_ts)
+
+```
+The above plot has a positive trend with some sort of seasonality
+
+
+```{r include=FALSE,message=FALSE}
+library(tsbox)
+mrev_olist %>%
+  as_tibble()
+```
+
+
+```{r include=FALSE,message=FALSE}
+rev_olist <- mrev_olist %>%
+            mutate(Month = yearmonth(months)) %>%
+            as_tsibble(index = Month)
+```
+
+
+```{r include=FALSE,message=FALSE}
+# Decomposition
+decomp <- rev_olist %>%
+  model(stl = STL(revenue))
+components(decomp)
+
+```
+
+
+### Following plot Shows the Trend Cycle
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+
+# Trend-Cycle component
+tc <- rev_olist %>%
+  autoplot(revenue, color='gray') +
+  autolayer(components(decomp), trend, color='red') +
+  xlab("Month_Year") + ylab("Revenue_Generated") +
+  ggtitle("Revenue \nTrend-Cycle")
+tc
+```
+## STL decomposition
+### STL is a versatile and robust method for decomposing time series. STL is an acronym for “Seasonal and Trend decomposition using Loess”, while Loess is a method for estimating nonlinear relationships.
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+# STL Decomposition
+rev_dc <- components(decomp) %>% autoplot() + xlab("Year")
+rev_dc
+```
+
+
+```{r include=FALSE,message=FALSE}
+# Seasonally-Adjusted component
+rev_olist %>%
+  autoplot(revenue, color='black') +
+  autolayer(components(decomp), season_adjust, color='blue') +
+  xlab("Month_Year") + ylab("Revenue_Generated") +
+  ggtitle("Mothly Revenue for 2017 and 2018")
+```
+
+### Plotting of ACF and PACF
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+rev_olist %>% gg_tsdisplay(revenue, plot_type = 'partial')
+
+```
+With ACF we can see that there is an exponential decay. There is also correlation in the residuals.
+This combination of ACF and PACF suggests that the underlying time series follows an autoregressive model.
+
+
+
+### KPSS shows a differencing is required.
+```{r echo=TRUE}
+rev_olist %>%
+  features(revenue, unitroot_kpss)
+```
+
+### Taking a seasonal difference first and then followed by a normal difference to make the data stationary and stabilize the mean.
+```{r echo=FALSE, message=FALSE}
+rev_olist %>% mutate(diff1 = difference(revenue),lag=12) %>%
+  mutate(diff2 = difference(diff1))%>%
+  gg_tsdisplay(diff2, plot_type = 'partial')
+```
+After differencing twice, we can see that our data is now almost a white noise
+
+### Above ACF suggests it is an AR(1) model. So fitting the values of p,d and q manually.
+```{r echo=TRUE, message=FALSE}
+fit_manual <- rev_olist %>% model(arima = ARIMA(revenue ~ pdq(1, 2, 0)))
+report(fit_manual)
+```
+AICc for the manual p,d,and q is 199.1
+
+## Force run all combinations
+```{r echo=TRUE, message=FALSE}
+auto_cv <- rev_olist %>% 
+  model(ARIMA(revenue ~ pdq(d=2), stepwise = FALSE, approximation = FALSE)) %>%
+  report()
+```
+
+
+```{r echo=TRUE, message=FALSE}
+rev_olist %>% 
+  model(ARIMA(revenue ~ pdq(d=2))) %>%
+  report()
+```
+
+
+```{r echo=FALSE,message=FALSE}
+gg_tsresiduals(auto_cv)
+```
+There are no lags outside the confidence interval and the residuals are normally distributed. This mean the data values have no correlation left.
+
+### ljung box test
+```{r echo=FALSE, message=FALSE}
+augment(auto_cv) %>%
+  features(.resid, ljung_box, lag = 10, dof = 3)
+
+```
+P-value is much greater than 0.05 hence, we can conclude that data values are independent.
+
+```{r echo=TRUE,message=FALSE}
+auto_cv %>% 
+  forecast(h = 5)
+```
+
+
+```{r echo=FALSE, message=FALSE}
+fore <- auto_cv %>% 
+  forecast(h = 5) %>% 
+  autoplot(rev_olist)
+
+fore
+accuracy(auto_cv)
+```
+
+## ETS method
+
+## Holt's Method
+
+### ETS(A,A,N)
+
+```{r echo=FALSE,message=FALSE}
+# Holt's Method
+ets_fit <- rev_olist %>%
+  model(AAN = ETS(revenue ~ error("A") + trend("A") + season("N")))
+report(ets_fit)
+```
+### ETS(A,N,A)
+```{r echo=FALSE,message=FALSE}
+etss_seas <- rev_olist %>%
+  model(ANA = ETS(revenue ~ error("A") + trend("N") + season("A")))
+
+report(etss_seas)
+```
+
+
+```{r echo=TRUE,message=FALSE}
+components(ets_fit) %>% autoplot()
+```
+
+
+```{r echo=FALSE,message=FALSE}
+ets_fit %>%
+  forecast(h = 5) %>%
+  autoplot(rev_olist) +
+  ylab("Revenue") + xlab("Month")
+```
+
+### Comparing SES, Holt's Method, and Damped Holt's Method 
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+fit_next<- rev_olist %>%
+  model(
+    ses = ETS(revenue ~ error("A") + trend("N") + season("N")),
+    holt = ETS(revenue ~ error("A") + trend("A") + season("N")),
+    damped = ETS(revenue ~ error("A") + trend("Ad") + season("N"))
+  )
+
+fit_next %>%
+  forecast(h = 5) %>%
+  autoplot(rev_olist) +
+  ylab("Revenue") + xlab("Month")
+```
+```{r echo=FALSE,message=FALSE}
+next_olist <- rev_olist %>% slice(n()-20:-10)
+
+fit_next %>% forecast(h=5) %>% 
+  autoplot(next_olist, level = NULL, lwd = 0.75)
+```
+### Comparing the errors for all the 3 methods:
+```{r echo=FALSE,message=FALSE}
+accuracy(fit_next)
+```
+Damped method gives the least error.
+
+
+### Letting automatic ets() function to choose the best model
+```{r message=FALSE}
+fitted_ets_auto <-ets(mrev_olist_ts)
+summary(fitted_ets_auto)
+```
+ets() gives ETS(M,A,N) as the model with better AICc. M is multiplicative error, A is additive trend and N is with none seasonality. It is a Multiplicative Holt-Winter's method with additive errors
+
+
+### Forecasting with ETS(M,A,N) model
+```{r message=FALSE,fig.align='center'}
+ets_fore <- fitted_ets_auto %>% forecast(h=5) %>%
+  autoplot()
+
+ets_fore
+```
+
+```{r message=FALSE}
+fitted_ets_auto %>% forecast(h=5)
+summary(fitted_ets_auto)
+```
+We can see that damped model and ETS(M,A,N) are almost similar with damped method has very little error difference from the latter.
+
+```{r,message=FALSE}
+checkresiduals(fitted_ets_auto)
+```
+
+### Performing cross validation on the time series for ETS and Arima.
+```{r echo=FALSE, r,message=FALSE}
+fets <- function(x, h) {
+  forecast(ets(x), h = h)
+}
+farima <- function(x, h) {
+  forecast(auto.arima(x), h=h)
+}
+
+e1 <- tsCV(mrev_olist_ts, fets, h=5)
+
+e2 <- tsCV(mrev_olist_ts, farima, h=5)
+
+sqrt(mean(e1^2, na.rm=TRUE))
+sqrt(mean(e2^2, na.rm=TRUE))
+```
+Henc, we can infer that ETS model is better in terms of error than ARIMA.
+
+## CONCLUSION ON FORECASTING:
+For ARIMA, the data was made stationary with seasonal differencing at the lag 12 as the timeseries has monthly data values followed by the normal differencing. Automatic ARIMA model with stepwise and approximation equal to false returns the lowest AICc values. 
+
+### Futher for ETS:
+I went ahead and tried ses, holt and damped method. Among all the three models Damped one had the least errors and was better of them.
+Next, I opted for ets() function to choose an optimal model based on the data values and it returned ETS(M,A,N) model with errors values almost similar to the damped method. The tsCV() for the ETS gives lesser error than ARIMA. Therefore, conncluding that ETS is performing better on the given time series data values.
+
+
+
+
+
+
+
+## Recenecy, Frequency and Monetary Value
+
+RFM (recency, frequency, monetary) analysis is a behavior based technique used to segment customers by examining their transaction history such as
+
+How recently a customer has purchased (RECENCY)?
+How often they purchase (FREQUENCY)?
+How much the customer spends (MONETARY_VALUE)?
+
+Why is Customer segmentation Important?
+Ans: General mass marketing is often expensive, time consuming and sometimes not that responsive. Focussing on particulare segment of customers helps to prevent customer churn, build customer loyalty and also increasing the brand equity. 
+
+```{r include=FALSE,message=FALSE}
+df_select <- orders_merged %>%
+  select(order_purchase_timestamp, customer_unique_id, payment_value, order_id)
+```
+
+```{r message=FALSE, include=FALSE}
+df_data <- df_select %>% 
+  mutate(InvoiceNo=as.factor(order_id), 
+         InvoiceDate=as.Date(order_purchase_timestamp, '%m/%d/%Y %H:%M'), CustomerID=as.factor(customer_unique_id))
+
+
+glimpse(df_data)
+```
+
+```{r message=FALSE, include=FALSE}
+RFM_df <- df_data %>% 
+  group_by(CustomerID) %>% 
+  summarise(RECENCY=as.numeric(as.Date("2018-10-10")-(InvoiceDate)),
+            FREQUENCY=n_distinct(InvoiceNo), M_VALUE= sum(payment_value)/n_distinct(InvoiceNo)) 
+
+#summary(df_RFM)
+```
+
+```{r message=FALSE, include=FALSE}
+head(RFM_df)
+```
+```{r include=FALSE}
+max(RFM_df$RECENCY)
+min(RFM_df$RECENCY)
+max(RFM_df$FREQUENCY)
+min(RFM_df$FREQUENCY)
+max(RFM_df$M_VALUE)
+min(RFM_df$M_VALUE)
+```
+
+
+```{r echo=FALSE, message=FALSE}
+ggplot(RFM_df, aes(x = RECENCY, y = FREQUENCY)) + 
+  geom_point(aes(color = RECENCY), size = 3) +
+  scale_color_gradientn(colors = c("darkred", "wheat", "yellow1")) + 
+  theme_minimal()
+```
+```{r message=FALSE, include=FALSE}
+hist(RFM_df$RECENCY)
+```
+```{r include=FALSE,message=FALSE}
+quantile(RFM_df$M_VALUE)
+
+```
+
+## rankMonetary columns
+
+```{r include=FALSE,message=FALSE}
+m_rank <- cut(RFM_df$M_VALUE, breaks=c(0,20,45,105,1000,12000))
+levels(m_rank)
+levels(m_rank) <- c(1,2,3,4,5)
+levels(m_rank)
+```
+
+
+```{r include=FALSE,message=FALSE}
+quantile(RFM_df$RECENCY)
+```
+
+
+```{r include=FALSE,message=FALSE}
+quantile(RFM_df$FREQUENCY)
+```
+
+## recency rank colums
+```{r include=FALSE,message=FALSE}
+r_rank <- cut(RFM_df$RECENCY, breaks=c(0,60,220,473,506,780))
+levels(r_rank) <- c(5,4,3,2,1)
+
+levels(r_rank)
+```
+```{r include=FALSE}
+f_rank <- cut(RFM_df$FREQUENCY, breaks=c(0,1,2,3,7,25))
+levels(f_rank) <- c(1,2,3,4,5)
+
+levels(f_rank)
+```
+
+
+```{r include=FALSE,message=FALSE}
+RFM_Scores <- data.frame(cbind(RFM_df$CustomerID, r_rank, f_rank, m_rank))
+
+colnames(RFM_Scores) <- c("CustomerID","Recency_rank","Frequency_rank","Monetary_rank")
+head(RFM_Scores)
+```
+
+
+```{r echo=TRUE,message=FALSE}
+RFM_Scores[RFM_Scores$CustomerID == 2785,]
+```
+### Segmenting the customers based on their Rececny Value
+
+```{r include=FALSE,message=FALSE}
+RFM_df$r_segment[which(RFM_df$RECENCY > 500 )] = "Inactive"
+RFM_df$r_segment[which(RFM_df$RECENCY > 250 & RFM_df$RECENCY <= 500 )] = "Idle"
+RFM_df$r_segment[which(RFM_df$RECENCY > 160 & RFM_df$RECENCY <= 250 )] = "Frequent"
+RFM_df$r_segment[which(RFM_df$RECENCY  <= 160 )] = "Active"
+
+head(RFM_df)
+
+
+```
+
+
+### Following is the Segmentation of customers based on their Recency.
+```{r echo=FALSE, message=FALSE}
+rec_cust <- aggregate(CustomerID ~ r_segment, RFM_df, FUN = function(x) length(unique(x)))
+rec_cust
+  
+```
+```{r echo=FALSE,message=FALSE}
+me <- rec_cust
+me$fraction <- me$CustomerID / sum(me$CustomerID)
+
+# Compute the cumulative percentages (top of each rectangle)
+me$ymax <- cumsum(me$fraction)
+
+# Compute the bottom of each rectangle
+me$ymin <- c(0, head(me$ymax, n=-1))
+
+# Compute label position
+me$labelPosition <- (me$ymax + me$ymin) / 2
+
+# Compute a good label
+me$label <- paste0(me$r_segment, "\n value: ", me$CustomerID)
+
+# Make the plot
+rec_seg <- ggplot(me, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=r_segment)) +
+  geom_rect() +
+  geom_text( x=2, aes(y=labelPosition, label=label, color=r_segment), size=3) +
+  scale_fill_brewer(palette="Set1") +
+  scale_color_brewer(palette="Set1") +
+  coord_polar(theta="y") +
+  xlim(c(-1, 4)) +
+  theme_void() +
+  theme(legend.position = "none")+
+  ggtitle("Customer Segmentation as per the Recency")
+
+rec_seg
+```
+
+We can see that there are maximum number of Idle customers.
+
+
+```{r include=FALSE,message=FALSE}
+quantile(RFM_df$M_VALUE)
+```
+```{r include=FALSE}
+rfm_columns = c("RECENCY", "FREQUENCY", "M_VALUE")
+scale_rfm = scale(RFM_df[, rfm_columns])
+summary(scale_rfm)
+```
+
+## Finding Optimal number of K for K means
+```{r echo=FALSE, message=FALSE}
+# specify a vector of values for k
+k_clusters = 1:10
+# loop for each value in k_clusters
+kmeans_rfm = lapply(k_clusters, function(k) {
+  # perform k-means with different k
+  km = kmeans(scale_rfm, centers = k, nstart = 100)
+  # extract the 'within sum of squares' values
+  return(km$tot.withinss) 
+})
+# produce an elbow plot
+plot(x = k_clusters, y = kmeans_rfm, type = "b", main = "Elbow Plot")
+```
+
+
+```{r include=FALSE,message=FALSE}
+km_optimal = kmeans(scale_rfm, centers = 4, nstart = 100)
+RFM_df$km_clusters = as.factor(km_optimal$cluster)
+```
+
+## conditional density and frequency plots:
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+# conditional density (and frequency) plots
+p_rec = ggplot(RFM_df, aes(x = RECENCY, fill = km_clusters)) + 
+  geom_density(position = "fill") + 
+  ggtitle("Recency")
+p_fre = ggplot(RFM_df, aes(x = as.factor(FREQUENCY), fill = km_clusters)) + 
+  geom_bar(position = "fill") +
+  ggtitle("Frequency")
+p_mon = ggplot(RFM_df, aes(x = M_VALUE, fill = km_clusters)) + 
+  geom_density(position = "fill") + 
+  ggtitle("Monetary Value")
+gridExtra::grid.arrange(p_rec, p_fre, p_mon, ncol = 3)
+```
+```{r echo=TRUE,message=FALSE}
+final_seg <- plotly::plot_ly(RFM_df, x = ~RECENCY, y = ~M_VALUE, z = ~FREQUENCY, color = ~km_clusters)
+final_seg
+
+```
+Above plot shows the clusters of the segmented customers based on their RFM values.
+(This may not get displayed in the knitted PDF. However, I have created a flexdashboard which contains all the outputs)
+
+## Following are the segments/clusters of customer based on RFM values:
+```{r message=FALSE, include=FALSE}
+RFM_df %>% 
+  group_by(km_clusters) %>% # define column used for grouping
+  summarize_if(is.numeric, mean) # aggregate all numeric columns by the mean
+```
+## Concluding with the above segmented clusters:
+Cluster 1: Here the customers have moderate Recency, high Frequency and moderate Monetary value. This segment of the customers are one of the best and loyal customers. Rewarding them with a ways of exciting offers can result in improving the Recency and Monetary value further more.
+
+Cluster 2: This segment has the customers with the lowest Recency, Frequency and Monetary Value. These are the customers are on the verge of churning. The churn can be avoided by offering one time free offers and preimum services trial periods.
+
+Cluster 3: This cluster is similar to the cluster 1 but has a higher Recency value.
+
+Cluster 4: Customers of this segments are one time buyers, which represents the largest segment Olist has. It has preety high value of monetary value. Tailored promotions like giving cashback and limited premium services to increase their frequency.
+
+
+
+
+# APPENDIX
+
+## Although the following analyses is not relevant to the algorithms applied, it still has many important insights with respect to customer reviews and information on sellers.
+
+### Let's explore the reviews and reviews_score given by the cutomers.
+
+```{r message=FALSE, include=FALSE}
+rev_score <- aggregate(review_id ~ review_score, reviews, FUN = function(x) length(unique(x)))
+rev_score
+```
+Review score of 5 was the highest which was given by 57000 customers.
+
+
+
+### Whar percent score is 5?
+```{r message=FALSE, include=FALSE}
+top_rs <- reviews %>%
+  filter(review_score == 5)
+highest_score <- nrow(top_rs)/nrow(reviews) * 100
+cat("The percentage with score 5 is:", highest_score)
+
+cat(" & ")
+bottom_rs <- reviews %>%
+  filter(review_score == 1)
+
+lowest_score <- nrow(bottom_rs)/nrow(reviews) * 100
+cat("The percentage with score 1 is:", lowest_score)
+```
+
+### What is the average review_score?
+
+```{r message=FALSE, include=FALSE}
+avg_score = mean(reviews$review_score)
+
+cat("The average review_score is :",avg_score)
+```
+
+
+```{r echo=FALSE, message=FALSE}
+options(scipen = 999)
+bar_reviews <- ggplot(data=reviews, aes(x= review_score,y=length(reviews))) +
+  geom_bar(stat="identity",fill="coral4", alpha=.8, width=0.8)+
+  xlab("Review_Score")+
+  ylab("Number of Review_Scores")+
+  ggtitle("Distribution of review_scores from 2016 to 2018")
+
+bar_reviews+theme(panel.background = element_rect(fill = 'cornsilk', colour = 'darkslategray'))
+
+
+
+```
+```{r include=FALSE,message=FALSE}
+reviews["review_length"] <- str_length(reviews$review_comment_message)
+head(reviews)
+```
+
+
+```{r include=FALSE,message=FALSE}
+length_score <- aggregate(review_length ~ review_score, reviews, sum)
+length_score
+```
+
+
+```{r echo=FALSE,message=FALSE}
+max_length <- ggplot(data = length_score, aes(x = review_score, y = review_length)) +
+    geom_bar(stat="identity",fill="black", alpha=.8, width=0.5)+
+    xlab("Review_Score")+
+    ylab("length of the review")+
+    ggtitle("Which review_score had the maximum length??")
+  
+
+
+max_length + theme(panel.background = element_rect(fill = 'beige', colour = 'darkslategray'))
+
+hc_score <- length_score %>% 
+  hchart(
+  'column', hcaes(x = review_score, y = review_length, color = review_score
+  ))%>%
+  hc_title(text="Which review_score had the maximum length??")%>%
+  hc_plotOptions(series = list(animation = FALSE))
+  
+hc_score
+```
+Review_score of 5 had the highest review length 
+
+
+# MQL(Marketing Qualified Lead) INSIGHTS
+```{r message=FALSE, include=FALSE}
+mql_df <- read_csv("olist_marketing_qualified_leads_dataset.csv")
+closed_deals_df <- read_csv("olist_closed_deals_dataset.csv")
+```
+
+
+```{r include=FALSE,message=FALSE}
+funnel <- merge(mql_df, closed_deals_df, by = 'mql_id')
+all_data= merge(seller,funnel, on='seller_id')
+colnames(all_data)
+
+```
+
+
+```{r include=FALSE,message=FALSE}
+
+
+all_data %>%
+  group_by(mql_id, origin) %>%
+  dplyr::summarise(n = n())
+```
+
+
+```{r include=FALSE,message=FALSE}
+or <- all_data %>%
+  select(mql_id, origin)
+head(or)
+```
+
+### The term 'Marketing Qualified Lead(MQL)' means a potential reseller/manufacturer who has an interest in selling their products on Olist. Olist acquired sellers through various different marketing channels. Let's find out which channel was the most effective in the lead generation.
+
+
+```{r include=FALSE}
+or_df <- aggregate(mql_id ~ origin, or, FUN = function(x) length(unique(x)))
+or_df
+
+```
+
+
+### We can see that Organic Search followed by the paid search generated most number of MQLs.
+
+
+
+```{r echo=FALSE,message=FALSE}
+ch_ac <- or_df %>%
+  mutate(name = fct_reorder(origin, mql_id)) %>%
+  ggplot( mapping = aes(x = reorder(origin, mql_id), mql_id)) +
+    geom_point( size=5, color="cornsilk", fill=alpha("darkblue", 0.8), alpha=0.7, shape=21, stroke=4) +
+  geom_segment(aes(x=origin, xend=origin, y=0, yend=mql_id))+
+    coord_flip() +
+    xlab("Type of Channels") +
+    ylab("Number of Conversions to MQL")+
+    theme_minimal()+
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+    ggtitle("MQLs acquired by different Channels")
+ch_ac
+  
+```
+
+
+## MARKETING CHANNEL EFFECTIVENESS
+
+### Let's see the number of MQLs generated over the time
+```{r include=FALSE,message=FALSE}
+new_mql <- mql_df %>%
+  mutate(date_mql = as.Date(first_contact_date, "%m/%d/%Y")) %>%
+  arrange(date_mql)
+```
+
+
+```{r include=FALSE,message=FALSE}
+new_mql$Month_Yr <- format(as.Date(new_mql$date_mql), "%Y-%m")
+```
+
+
+```{r include=FALSE,message=FALSE}
+new_mql$m_y <- paste(new_mql$m,"/",new_mql$y)
+#mql_df
+months_mql <- aggregate(mql_id ~ Month_Yr, new_mql, FUN = function(x)length(unique(x)))
+months_mql
+
+```
+
+### Following plot shows the timeseries of MQLs acquired by the Olist
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+mq_vol <- ggplot(data=months_mql, aes(x=Month_Yr, y=mql_id, group=1)) +
+  geom_line(color="red")+
+  geom_point(size=3, shape=22, colour="darkred", fill="black")+
+   ggtitle("MQL Volume")+
+   theme_minimal()
+mq_vol
+```
+We can infer that the MQL volume grew maximum in January of 2018
+
+
+### Now let's take a look at the Closed deals. A MQL who eventually signs up for the Seller portfolio is called as a closed deal.
+```{r include=FALSE,message=FALSE}
+head(funnel)
+funnel$M_Y <- format(as.Date(funnel$first_contact_date), "%Y-%m")
+seller_mql <- aggregate(seller_id ~ M_Y, funnel, FUN = function(x)length(unique(x)))
+seller_mql
+```
+
+
+```{r echo=FALSE,message=FALSE}
+cd <- ggplot(data=seller_mql, aes(x=M_Y, y=seller_id, group=1)) +
+  geom_line(color="darkolivegreen")+
+  geom_point(size=4, shape=23, colour="chocolate4", fill="blue4")+
+   ggtitle("Closed_deals Volume")+
+  theme_minimal()
+cd
+```
+Conversion rate also increased with the MQL volume.
+
+
+```{r include=FALSE,message=FALSE}
+b_type <- aggregate(mql_id ~ business_type, funnel, FUN = function(x)length(unique(x)))
+b_type
+```
+
+
+### Following Doghnut chart describes the business types of sellers
+```{r echo=FALSE,message=FALSE,fig.align='center'}
+b_type$fraction <- b_type$mql_id / sum(b_type$mql_id)
+
+# Compute the cumulative percentages (top of each rectangle)
+b_type$ymax <- cumsum(b_type$fraction)
+
+# Compute the bottom of each rectangle
+b_type$ymin <- c(0, head(b_type$ymax, n=-1))
+
+# Compute label position
+b_type$labelPosition <- (b_type$ymax + b_type$ymin) / 2
+
+# Compute a good label
+b_type$label <- paste0(b_type$business_type, "\n value: ", b_type$mql_id)
+
+# Make the plot
+sel_type <- ggplot(b_type, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=business_type)) +
+  geom_rect() +
+  geom_text( x=1.8, aes(y=labelPosition, label=label, color=business_type), size=4) + # x here controls label position (inner / outer)
+  scale_fill_brewer(palette="Set2") +
+  scale_color_brewer(palette="Set2") +
+  coord_polar(theta="y") +
+  xlim(c(-1, 4)) +
+  theme_void() +
+  theme(legend.position = "none")+
+ggtitle("Customer Segmentation as per their Recency")
+
+sel_type
+```
+References:
+
+1. https://www.kaggle.com/olistbr/brazilian-ecommerce
+
+2. Book 
+   Rob J Hyndman and George Athanasopoulos. Forecasting: Principles and Practice. 3rd edition, 2020. OTexts.
+   https://otexts.com/fpp3/.
+   
+3. https://towardsdatascience.com/exploring-highcharts-in-r-f754143efda7

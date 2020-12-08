@@ -1,0 +1,233 @@
+---
+title: "Olist_Report"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+```
+
+# EDA on Customer Orders
+
+## Column {.tabset}
+
+### Trend of number of users per month per year
+
+```{r}
+chartA
+```
+
+### Revenue by Month by Year
+
+```{r}
+hc_revenue
+```
+
+### Popular products
+
+```{r}
+hc_prod
+```
+
+
+
+## Column {data-width = 250}
+
+### Type of payments
+```{r}
+hc_pay
+```
+
+### State with highest number of orders
+```{r}
+state
+```
+
+# EDA on Customer Reviews
+
+## Column { .tabset}
+
+
+### Reviews and lengths
+```{r}
+hc_score
+```
+
+### Distribution of review_scores
+
+```{r}
+bar_reviews
+```
+
+## Column {data-width = 250}
+
+### % of review_score as 1
+```{r}
+gauge(12, min = 0, max = 100, symbol = '%', gaugeSectors(
+  success = c(80, 100), warning = c(40, 79), danger = c(0, 39)
+))
+```
+
+### % of review_score as 5
+
+```{r}
+gauge(57, min = 0, max = 100, symbol = '%', gaugeSectors(
+  success = c(80, 100), warning = c(40, 79), danger = c(0, 39)
+))
+```
+
+### Average review_score
+
+```{r}
+valueBox(4.07, icon = "fa-pencil", href="#details")
+```
+
+
+
+# Seller Side EDA
+
+## Column {data-width = 500}
+
+### MQL by different channels
+```{r}
+ch_ac
+```
+
+## Column {data-width = 500}
+
+### MQL volume
+```{r}
+mq_vol
+```
+
+
+
+### Closed_deals volume
+```{r}
+cd
+```
+
+## Column {data-width = 500}
+
+### Type of sellers
+```{r}
+sel_type
+```
+
+
+# Forecasting
+
+## Column {.tabset}
+
+### Time_Series plot
+```{r}
+plot(mrev_olist_ts)
+```
+
+
+
+### Trend cycle
+
+```{r}
+tc
+```
+
+### Decomposition
+
+```{r}
+rev_dc
+```
+
+
+### ACF & PACF
+
+```{r}
+rev_olist %>% gg_tsdisplay(revenue, plot_type = 'partial')
+```
+
+
+## Column {.tabset}
+
+### Differenced Time_Series
+
+```{r}
+rev_olist %>% mutate(diff1 = difference(revenue),lag=12) %>%
+  mutate(diff2 = difference(diff1))%>%
+  gg_tsdisplay(diff2, plot_type = 'partial')
+```
+
+
+### ARIMA forecast
+```{r}
+fore
+```
+
+### ETS(M,A,N) forecast
+```{r}
+ets_fore
+```
+
+
+
+
+
+# Customer_Segmentation
+
+
+## Column {data-width = 250}
+
+### Maximum Recency
+```{r}
+valueBox(766, href="#details")
+```
+
+### Minimum Recency
+
+```{r}
+valueBox(17, href="#details")
+```
+
+### Maximum Frequency
+
+```{r}
+valueBox(16,href="#details",icon = "fa-line-chart",color = "info")
+```
+
+### Minimum Frequency
+
+```{r}
+valueBox(1,href="#details", icon = "fa-line-chart",color = "info")
+```
+
+### Maximum Monetary_Value
+
+```{r}
+valueBox(109321,href="#details",icon = "fa-money", color ='green')
+```
+
+### Minimum Monetary_Value
+
+
+```{r}
+valueBox(9.59, href="#details",icon = "fa-money", color ='green')
+```
+
+## Column {.tabset}
+
+### Recency based Customer Segmentation
+```{r}
+rec_seg
+```
+
+
+
+### K means based Customer Segmentation
+
+```{r}
+final_seg
+```
+
